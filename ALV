@@ -1,0 +1,1342 @@
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& REPORT  ZTEST_LEE
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  ztest_lee.
+TYPE-POOLS:slis,icon,vrm,truxs.
+TABLES:sscrfields.    "选择屏幕上的字段 PAI
+DATA:gt_fieldcat TYPE lvc_t_fcat WITH HEADER LINE,    "
+     gw_layout   TYPE lvc_s_layo,    "
+     gt_sort     TYPE lvc_t_sort WITH HEADER LINE,
+     gw_setting      TYPE lvc_s_glay,   "
+     gt_ddval        TYPE lvc_t_drop,
+     gw_ddval        TYPE lvc_s_drop,
+     gt_event        TYPE slis_t_event WITH HEADER LINE,   "
+     gv_pgm          TYPE sy-repid,   "
+     gv_colpos       TYPE int2.
+
+TABLES:vbap,ekko.
+DATA:BEGIN OF gt_itab OCCURS 0,
+      vbeln TYPE vbap-vbeln,
+      posnr TYPE vbap-posnr,
+      matnr TYPE vbap-matnr,
+      matkl TYPE vbap-matkl,
+      arktx TYPE vbap-arktx,
+      zmeng TYPE vbap-zmeng,
+      zieme TYPE vbap-zieme,
+
+      sel   TYPE c,
+      selcb TYPE c,    "CHECKBOX.
+      wgbez TYPE t023t-wgbez,
+
+      msg(50),
+      btn_add(10),    "增加 按钮
+      clr   TYPE char4,    "字体颜色-行.
+      drop  TYPE char4,   "下拉框
+      icon  TYPE char10,    " 图表输出：ICON_LED_GREEN,  ICON_LED_RED.
+     END OF gt_itab.
+DATA:BEGIN OF gt_alv OCCURS 0.
+        INCLUDE STRUCTURE gt_itab.
+DATA: styl TYPE lvc_t_styl,    "设置该单元格不可以编辑
+      scol TYPE lvc_t_scol,   "单元格的颜色
+END OF gt_alv.
+
+
+************************************************
+*     类.
+************************************************
+DATA:go_alv_grid TYPE REF TO cl_gui_alv_grid.
+
+INCLUDE ztest_excel_common.
+************************************************
+*     ALV事件.
+************************************************
+*创建类
+CLASS lcl_event_receiver DEFINITION DEFERRED.
+*----------------------------------------------------------------------*
+*       CLASS LCL_EVENT_RECEIVER DEFINITION.
+*----------------------------------------------------------------------*
+CLASS lcl_event_receiver DEFINITION.
+  PUBLIC SECTION.
+    METHODS:
+      handle_f4 FOR EVENT onf4 OF cl_gui_alv_grid
+        IMPORTING e_fieldname
+                    es_row_no
+                    er_event_data
+                    et_bad_cells,
+      handle_data_changed FOR EVENT data_changed OF cl_gui_alv_grid
+        IMPORTING er_data_changed
+                    e_onf4
+                    e_onf4_before
+                    e_onf4_after
+                    e_ucomm,
+      handle_changed_finished FOR EVENT data_changed_finished OF cl_gui_alv_grid
+        IMPORTING e_modified
+                    et_good_cells,
+      handle_button_click FOR EVENT button_click OF cl_gui_alv_grid
+        IMPORTING es_col_id es_row_no.
+ENDCLASS.                    "LCL_EVENT_RECEIVER DEFINITION.
+*----------------------------------------------------------------------*
+*       CLASS LCL_EVENT_RECEIVER IMPLEMENTATION.
+*----------------------------------------------------------------------*
+CLASS lcl_event_receiver IMPLEMENTATION.
+  METHOD  handle_f4.
+    PERFORM handle_f4 USING e_fieldname es_row_no.
+    PERFORM refresh_alv.
+  ENDMETHOD.                                                "HANDLE_F4.
+  METHOD handle_data_changed.
+    PERFORM handle_data_changed USING er_data_changed e_onf4  e_onf4_before e_onf4_after e_ucomm.
+    PERFORM refresh_alv.
+  ENDMETHOD.                    "HANDLE_DATA_CHANGED.
+  METHOD  handle_changed_finished.
+    PERFORM handle_changed_finished USING e_modified et_good_cells.
+    PERFORM refresh_alv.
+  ENDMETHOD.                    "HANDLE_CHANGED_FINISHED.
+  METHOD  handle_button_click.
+    PERFORM handle_button_click USING es_col_id es_row_no.
+    PERFORM refresh_alv.
+  ENDMETHOD.                    " HANDLE_BUTTON_CLICK.
+ENDCLASS.              "LCL_EVENT_RECEIVER IMPLEMENTATION.
+
+
+************************************************
+*     选择界面.
+************************************************
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+PARAMETERS: r_r1  RADIOBUTTON GROUP g1 USER-COMMAND flag DEFAULT 'X'.
+
+SELECTION-SCREEN BEGIN  OF LINE.
+PARAMETERS: r_r2  RADIOBUTTON GROUP g1.   "显示、隐藏
+SELECTION-SCREEN COMMENT 5(8) text-r20 FOR FIELD r_r2.
+PARAMETERS: r_21 RADIOBUTTON GROUP g2 MODIF ID m2 USER-COMMAND flag DEFAULT 'X'.
+SELECTION-SCREEN COMMENT 19(8) text-r21 FOR FIELD r_21.
+PARAMETERS: r_22 RADIOBUTTON GROUP g2 MODIF ID m2.
+SELECTION-SCREEN COMMENT 30(8) text-r22 FOR FIELD r_22.
+SELECTION-SCREEN END OF LINE.
+
+PARAMETERS: r_r3 RADIOBUTTON GROUP g1,    "导入EXCEL
+            r_r4 RADIOBUTTON GROUP g1.    "导入EXCEL（另一种方式） 行-列-值
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+PARAMETERS p_lgort TYPE t001l-lgort.
+PARAMETERS p_lgort2 TYPE lgort_d.   "自定义搜索帮助
+SELECT-OPTIONS:
+    s_vbeln FOR vbap-vbeln MODIF ID m1,
+    s_posnr FOR vbap-posnr MODIF ID m1,
+    s_matnr FOR vbap-matnr MODIF ID m3.
+PARAMETERS p_arktx TYPE vbap-arktx.   "物料描述  模糊查询
+*SELECT-OPTIONS:S_BSTKD FOR VBKD-BSTKD MATCHCODE OBJECT ZHX_SHLP_CODE ,"设置自定义搜索帮助
+SELECTION-SCREEN SKIP .
+"下拉框两种方法
+PARAMETER lb_werks TYPE t001l-werks AS LISTBOX VISIBLE LENGTH 20 .    "下拉框 WERKS
+PARAMETER lb_lgort TYPE t001l-lgort AS LISTBOX VISIBLE LENGTH 20."下拉框2 LGORT
+
+PARAMETERS p_file LIKE rlgrap-filename MODIF ID m4 OBLIGATORY
+          DEFAULT 'C:\USERS\LEE\DESKTOP\123.XLS'.
+SELECTION-SCREEN END OF BLOCK b2.
+
+SELECTION-SCREEN:FUNCTION KEY 1,FUNCTION KEY 2.
+
+
+***subscreen
+SELECTION-SCREEN BEGIN OF SCREEN 100 AS SUBSCREEN .
+PARAMETERS:p_matnr TYPE mara-matnr.
+SELECTION-SCREEN END OF SCREEN 100.
+
+SELECTION-SCREEN BEGIN OF SCREEN 200 AS SUBSCREEN .
+SELECT-OPTIONS:s_ebeln FOR ekko-ebeln.
+SELECTION-SCREEN END OF SCREEN 200 .
+
+SELECTION-SCREEN : BEGIN OF TABBED BLOCK subscreen FOR 5 LINES,
+  TAB (20) button1 USER-COMMAND push1 ,
+  TAB (20) button2 USER-COMMAND push2 ,
+  END OF BLOCK subscreen .
+
+************************************************
+*     INITIALIZATION.
+************************************************
+INITIALIZATION.
+*  PERFORM INIT.
+  DATA:lw_functxt TYPE smp_dyntxt.
+  lw_functxt-icon_id = icon_xxl.    "图标
+  lw_functxt-icon_text = 'FC01'.    "图标文本
+  sscrfields-functxt_01 = lw_functxt.
+  lw_functxt-icon_id = icon_xxl.    "
+  lw_functxt-icon_text = 'FC02'.
+  sscrfields-functxt_02 = lw_functxt.
+
+****SUBSCREEN 分页
+  button1 = 'SUB 1'.
+  button2 = 'SUB 2'.
+  subscreen-prog = sy-repid.
+  subscreen-dynnr = 100.   "默认屏幕
+
+
+
+************************************************
+*     AT SELECTION-SCREEN.
+************************************************
+AT SELECTION-SCREEN.
+*  PERFORM AUTHORITY_CHECK.
+  CASE sscrfields-ucomm.
+    WHEN 'FC01'.
+      MESSAGE 'FC01' TYPE 'I'.
+    WHEN 'FC02'.
+*      PERFORM DOWNLOAD_EXCEL_FROMSERVER USING 'ZMM001' ''.
+  ENDCASE.
+
+***SUB SCREEN 屏幕
+  CASE sy-ucomm .
+    WHEN 'PUSH1'.
+      subscreen-dynnr = 100.
+      subscreen-activetab = 'BUTTON1'.
+    WHEN 'PUSH2'.
+      subscreen-dynnr = 200.
+      subscreen-activetab = 'BUTTON2'.
+  ENDCASE .
+
+
+************************************************
+*     AT SELECTION-SCREEN OUTPUT.
+************************************************
+AT SELECTION-SCREEN OUTPUT.
+  PERFORM set_screen.
+
+************************************************
+*     AT SELECTION-SCREEN ON VALUE-REQUEST.
+************************************************
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR lb_lgort.
+  PERFORM list_lgort USING 'LB_LGORT'.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_lgort2.
+  PERFORM help_lgort USING 'P_LGORT2'.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+  PERFORM help_select_file USING p_file.
+
+************************************************
+*     START-OF-SELECTION.
+************************************************
+START-OF-SELECTION.
+
+**SUB 逻辑细分
+  IF subscreen-dynnr = 100.
+
+  ELSEIF subscreen-dynnr = 200.
+
+  ENDIF.
+
+
+
+  IF r_r3 EQ 'X'.
+    "上传EXCEl 方法1
+    PERFORM upload_data USING 'X'.
+    IF gt_itab[] IS INITIAL.
+      MESSAGE '文件没有值' TYPE 'I'.
+      EXIT.
+    ENDIF.
+    LOOP AT gt_itab.
+      "S4
+*      GT_ALV = CORRESPONDING #( GT_ITAB ).
+      "ECC
+      MOVE-CORRESPONDING gt_itab TO gt_alv.
+
+      APPEND gt_alv.
+      CLEAR:gt_itab,gt_alv.
+    ENDLOOP.
+*    PERFORM ANLS_DATA.
+  ELSEIF r_r4 EQ 'X'.
+    "上传EXCEl 方法2
+    PERFORM upload_data USING ''.
+  ELSE.
+    PERFORM get_data.
+  ENDIF.
+
+  PERFORM display_alv.
+
+************************************************
+*     FORM .
+************************************************
+*&---------------------------------------------------------------------*
+*& FORM SET_SCREEN.
+*&---------------------------------------------------------------------*
+FORM set_screen .
+  "显示隐藏输入
+  LOOP AT SCREEN.
+    CASE screen-group1.
+      WHEN 'M1'.
+        IF r_r1 = 'X'.
+          screen-active = '1'.
+        ELSE.
+          screen-active = '0'.
+        ENDIF.
+      WHEN 'M2'.
+        IF r_r2 = 'X'.
+          screen-active = '1'.
+        ELSE.
+          screen-active = '0'.
+        ENDIF.
+      WHEN 'M3'.
+        screen-input = 0.
+    ENDCASE.
+    MODIFY SCREEN.
+  ENDLOOP.
+  "下拉框
+  DATA:lt_values TYPE vrm_value OCCURS 0.
+  SELECT werks name1 INTO TABLE lt_values FROM t001w WHERE adrnr NE ''.
+  CALL FUNCTION 'VRM_SET_VALUES'
+    EXPORTING
+      id     = 'LB_WERKS'
+      values = lt_values[].
+
+ENDFORM.                    "SET_SCREEN
+*&---------------------------------------------------------------------*
+*& FORM LIST_LGORT.
+*&---------------------------------------------------------------------*
+FORM list_lgort  USING v_field TYPE help_info-dynprofld.
+  "S4
+*  SELECT LGORT,LGOBE INTO TABLE @DATA(LT_T001L) FROM T001L.
+  "ECC
+  DATA:BEGIN OF lt_t001l OCCURS 0,
+    lgort TYPE t001l-lgort,
+    lgobe TYPE t001l-lgobe,
+    END OF lt_t001l.
+  SELECT lgort lgobe INTO TABLE lt_t001l FROM t001l.
+
+  SORT lt_t001l BY lgort.
+  DELETE ADJACENT DUPLICATES FROM lt_t001l COMPARING lgort.
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST' "调用函数
+    EXPORTING
+      retfield         = 'LGORT '                    "
+      dynpprog         = sy-repid
+      dynpnr           = sy-dynnr
+      dynprofield      = v_field
+      window_title     = 'WINDOW--TITLE'
+      value_org        = 'S'
+      callback_program = sy-repid
+    TABLES
+      value_tab        = lt_t001l.
+
+ENDFORM.                    "LIST_LGORT
+*&---------------------------------------------------------------------*
+*& FORM HELP_LGORT.
+*&---------------------------------------------------------------------*
+FORM help_lgort  USING pv_field TYPE help_info-dynprofld.
+  "S4
+*  SELECT WERKS,LGORT INTO TABLE @DATA(LT_T001L) FROM T001L.
+  "ECC
+  DATA:BEGIN OF lt_t001l OCCURS 0,
+    werks TYPE t001l-werks,
+    lgort TYPE t001l-lgort,
+    END OF lt_t001l.
+  SELECT werks lgort INTO TABLE lt_t001l FROM t001l.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST' "调用函数
+    EXPORTING
+      retfield    = 'MRZON'                    "
+      dynpprog    = sy-repid
+      dynpnr      = sy-dynnr
+      dynprofield = pv_field
+      value_org   = 'S'
+    TABLES
+      value_tab   = lt_t001l.
+
+ENDFORM.                    "HELP_LGORT
+*&---------------------------------------------------------------------*
+*& FORM HELP_SELECT_FILE
+*&---------------------------------------------------------------------*
+FORM help_select_file  USING  pv_file.
+  CALL FUNCTION 'WS_FILENAME_GET'
+    EXPORTING
+      def_filename = ''
+      def_path     = 'C:\USERS\YEPINGMA\DESKTOP\'
+      mask         = ' EXCEL(*.XLS)|*.XLS|EXCEL(*.XLSX)|*.XLSX|全部文件 (*.*)|*.*|'
+      mode         = 'O'
+      title        = '请选择上传文件'
+    IMPORTING
+      filename     = pv_file
+    EXCEPTIONS
+      OTHERS       = 1.
+ENDFORM.                    "HELP_SELECT_FILE
+*&---------------------------------------------------------------------*
+*& FORM UPLOAD_DATA.
+*&---------------------------------------------------------------------*
+FORM upload_data USING pv_flag.
+  DATA:lv_filename TYPE rlgrap-filename,
+       lt_result_tab  TYPE match_result_tab.
+  lv_filename = p_file.
+  FIND REGEX '^(.)+\.TXT$' IN lv_filename RESULTS lt_result_tab.
+  IF lt_result_tab[] IS NOT INITIAL.   "TXT
+*    PERFORM READ_TXT_DATA USING US_FILENAME.
+    DELETE gt_itab INDEX 1.
+  ELSE.   "XLS.
+    PERFORM xls_data USING pv_flag.
+  ENDIF.
+ENDFORM.                    "UPLOAD_DATA
+*&---------------------------------------------------------------------*
+*& FORM XLS_DATA.
+*&---------------------------------------------------------------------*
+FORM xls_data USING pv_flag .
+  DATA:lv_filename TYPE rlgrap-filename,
+       lt_raw      TYPE truxs_t_text_data.
+  lv_filename = p_file.
+
+  IF lv_filename IS INITIAL.
+    MESSAGE  '路径不允许为空' TYPE 'I'.
+    LEAVE TO CURRENT TRANSACTION.
+  ENDIF.
+
+  IF pv_flag EQ 'X'.
+    "EXCEL字段要求较高
+    CALL FUNCTION 'TEXT_CONVERT_XLS_TO_SAP'
+      EXPORTING
+        i_line_header        = 'X'    "抬头行
+        i_tab_raw_data       = lt_raw      " WORK TABLE
+        i_filename           = p_file
+      TABLES
+        i_tab_converted_data = gt_itab[]   "ACTUAL DATA
+      EXCEPTIONS
+        conversion_failed    = 1
+        OTHERS               = 2.
+    IF sy-subrc NE 0.
+      MESSAGE '文件不存在' TYPE 'I'.
+      LEAVE TO CURRENT TRANSACTION.
+    ENDIF.
+  ELSE.   "行-列-值  可以忽略前几行
+
+    DATA:lv_field    TYPE char20.
+    DATA:BEGIN OF lt_excel OCCURS 0.
+            INCLUDE STRUCTURE alsmex_tabline.
+    DATA:END OF lt_excel.
+
+    CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+      EXPORTING
+        percentage = 0
+        text       = '正在上传EXCEL数据,请稍侯...'.
+
+*  CALL FUNCTION 'ZPPM_EXCEL_TO_INTERNAL_TABLE'   "扩大导入字段长度
+    CALL FUNCTION 'ALSM_EXCEL_TO_INTERNAL_TABLE'
+      EXPORTING
+        filename                = lv_filename
+        i_begin_col             = 1
+        i_begin_row             = 2
+        i_end_col               = 30
+        i_end_row               = 9999
+      TABLES
+        intern                  = lt_excel
+      EXCEPTIONS
+        inconsistent_parameters = 1
+        upload_ole              = 2
+        OTHERS                  = 3.
+    IF sy-subrc <> 0 .
+      MESSAGE e000(oo) WITH 'ERROR CODE' sy-subrc.
+      EXIT.
+    ENDIF.
+    "S4
+*    LOOP AT LT_EXCEL ASSIGNING FIELD-SYMBOL(<FS_ROW>) GROUP BY <FS_ROW>-ROW.
+*      LOOP AT GROUP <FS_ROW> INTO DATA(LW_EXCEL).
+*        ASSIGN COMPONENT LW_EXCEL-COL OF STRUCTURE GT_ALV TO FIELD-SYMBOL(<FS_DATA>).
+*        IF SY-SUBRC EQ 0 AND <FS_DATA> IS ASSIGNED.
+*          MOVE LW_EXCEL-VALUE TO <FS_DATA>.
+*          IF '00002' CS LW_EXCEL-COL.
+*            <FS_DATA> = |{ <FS_DATA> ALPHA = IN  WIDTH = 18 } |.
+*          ELSEIF '00001,00005' CS LW_EXCEL-COL.
+*            <FS_DATA> = |{ <FS_DATA> ALPHA = IN } |.
+*          ENDIF.
+*        ENDIF.
+*        UNASSIGN <FS_DATA>.
+*        CLEAR LW_EXCEL.
+*      ENDLOOP.
+*      APPEND GT_ALV.
+*      CLEAR GT_ALV.
+*    ENDLOOP.
+
+    "ECC
+    DATA:BEGIN OF lt_xls OCCURS 0,
+      bukrs TYPE bukrs,    "公司
+    END OF lt_xls.
+    FIELD-SYMBOLS:<fs_data>.
+
+    LOOP AT lt_excel.
+      ASSIGN COMPONENT lt_excel-col OF STRUCTURE lt_xls TO <fs_data>.
+      IF sy-subrc EQ 0 AND <fs_data> IS ASSIGNED.
+        MOVE lt_excel-value TO <fs_data>.
+        IF '00015,00017,00018,00019,00020' CS lt_excel-col AND lt_excel-value IS NOT INITIAL.
+          CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+            EXPORTING
+              input  = lt_excel-value
+            IMPORTING
+              output = <fs_data>.
+
+        ENDIF.
+      ENDIF.
+      UNASSIGN <fs_data>.
+
+      AT END OF row.
+        MOVE-CORRESPONDING lt_xls TO gt_alv.
+
+        APPEND gt_alv.
+        CLEAR:lt_xls,gt_alv.
+      ENDAT.
+
+      CLEAR:lt_excel.
+    ENDLOOP.
+  ENDIF.
+ENDFORM.                    "XLS_DATA
+
+*&---------------------------------------------------------------------*
+*& FORM F_GET_DATA.
+*&---------------------------------------------------------------------*
+FORM get_data .
+  "设置单元格颜色
+  DATA lw_cellcolor TYPE lvc_s_scol.    "颜色
+  DEFINE set_color.
+    lw_cellcolor-fname = &1.
+    lw_cellcolor-color-col = &2.   "颜色
+    lw_cellcolor-color-int = &3.   "强化
+    lw_cellcolor-color-inv = &4.   "相反
+    append lw_cellcolor to gt_alv-scol.
+    clear lw_cellcolor.
+  END-OF-DEFINITION.
+*ALV 字段处理
+  "不可以编辑
+  DATA:lt_styl TYPE lvc_t_styl WITH HEADER LINE.
+  lt_styl-fieldname = 'DROP'.
+  lt_styl-style = cl_gui_alv_grid=>mc_style_disabled.
+  APPEND lt_styl.
+  lt_styl-fieldname = 'MATKL'.
+  APPEND lt_styl.
+  CLEAR lt_styl.
+*  "按钮
+*  lt_styl-fieldname = 'BTN_ADD'.
+*  lt_styl-style = cl_gui_alv_grid=>mc_style_button.   "按钮
+*  APPEND lt_styl.
+
+
+  "物料描述模糊查询
+  DATA:lv_arktx TYPE vbap-arktx.
+  CONCATENATE '%' p_arktx '%' INTO lv_arktx.
+
+  SELECT vbeln posnr matnr arktx zmeng zieme INTO CORRESPONDING FIELDS OF TABLE gt_itab FROM vbap UP TO 20 ROWS
+    WHERE arktx LIKE lv_arktx.
+  LOOP AT gt_itab.
+    "S4
+*    GT_ALV = CORRESPONDING #( GT_ITAB ).
+    "ECC
+    MOVE-CORRESPONDING gt_itab TO gt_alv.
+    IF sy-tabix EQ 1.
+      "绿色图标
+      gt_alv-icon = icon_led_green.
+    ELSEIF sy-tabix EQ 2.
+      "红色图标
+      gt_alv-icon = icon_led_red.
+    ELSEIF sy-tabix EQ 3.
+      "不可以编辑
+      gt_alv-styl = lt_styl[].
+    ELSEIF sy-tabix EQ 4.
+      gt_alv-clr = 'C310'.    "黄色-行
+    ELSEIF sy-tabix EQ 5.
+      gt_alv-clr = 'C610'.    "红色-行
+    ELSEIF sy-tabix EQ 6.
+      gt_alv-clr = 'C510'.    "绿色-行
+    ELSEIF sy-tabix EQ 7.
+      "设置单元格颜色
+      set_color 'MATNR' '6' '1' '0'.
+      set_color 'WGBEZ' '7' '1' '0'.
+
+    ELSEIF sy-tabix EQ 8.
+      "红灯; 停止; 错误
+      gt_alv-icon = icon_red_light.
+    ELSEIF sy-tabix EQ 9.
+      "黄灯; 注意
+      gt_alv-icon = icon_yellow_light.
+    ELSEIF sy-tabix EQ 10.
+      "绿灯; 继续; 好的
+      gt_alv-icon = icon_green_light.
+    ELSEIF sy-tabix EQ 11.
+      "按钮
+      lt_styl-fieldname = 'BTN_ADD'.
+      lt_styl-style = cl_gui_alv_grid=>mc_style_button.   "按钮
+      APPEND lt_styl TO gt_alv-styl.
+
+      gt_alv-btn_add = '增加'.
+    ENDIF.
+*    gt_alv-msg = '0123456789012345678901234567890123456789'.
+    APPEND gt_alv.
+    CLEAR:gt_itab,gt_alv.
+  ENDLOOP.
+ENDFORM.                    "F_GET_DATA
+*&---------------------------------------------------------------------*
+*& FORM DISPLAY_ALV.
+*&---------------------------------------------------------------------*
+FORM display_alv.
+*控制不同按钮不同的变试
+  DATA:lw_variant          TYPE disvariant.
+  lw_variant-username = sy-uname.
+  lw_variant-report = sy-repid.
+  lw_variant-handle = 1.
+
+*LVC
+  gw_layout-zebra = 'X'.
+*  gw_layout-cwidth_opt = 'X'.
+  gw_layout-box_fname = 'SEL'.
+  gw_layout-info_fname = 'CLR'.  "颜色代码的字段-行.
+  gw_layout-ctab_fname = 'SCOL'.    "颜色代码的字段-具体单元格.
+  gw_layout-stylefname = 'STYL'.    "设置单元格是否可编辑
+
+*FIELDCAT.
+*  DATA : LW_FCAT TYPE LVC_S_FCAT,
+*         LT_FCAT TYPE LVC_T_FCAT.
+*  DEFINE  FCAT.
+*    CLEAR LW_FCAT.
+*    LW_FCAT-COL_POS = &1.
+*    LW_FCAT-FIELDNAME = &2.
+*    LW_FCAT-TABNAME = &3.
+*    LW_FCAT-QFIELDNAME = &4.
+*    LW_FCAT-CHECKBOX = &5.
+*    LW_FCAT-EDIT = &6.
+*    LW_FCAT-SCRTEXT_M = &7.
+**    LW_FCAT-SCRTEXT_L = LW_FCAT-SCRTEXT_M = LW_FCAT-SCRTEXT_S = &7.
+*    LW_FCAT-CONVEXIT = &8.
+*    APPEND LW_FCAT TO LT_FCAT.
+*  END-OF-DEFINITION.
+*
+*根据内表自动生成显示FIELDCAT
+*单行代码超过255或报错
+*  CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
+*    EXPORTING
+*      I_STRUCTURE_NAME = 'ZXTA_MCH1_LOGS'
+*    CHANGING
+*      CT_FIELDCAT      = LT_FCAT.
+*
+*  FCAT 1 'SEL' 'GT_DATA' SPACE 'X' 'X' '选择' SPACE.
+*  APPEND LINES OF LT_FCAT TO GT_FIELDCAT[].
+
+  PERFORM add_fieldcat USING :
+    'SELCB' '选择' '' 'X' 'X' 'X' '',
+    'MSG' '消息' '20' '' '' '' '',
+    'BTN_ADD' '' '' '' '' '' '',
+    'VBELN' 'SO' '' '' '' '' 'X',
+    'POSNR' 'SO行' '' '' '' '' 'X',
+    'MATNR' '物料' '18' '' '' '' '',
+    'ARKTX' '物料描述' '' '' '' '' '',
+    'MATKL' '物料组' '' '' '' 'X' '',
+    'WGBEZ' '物料组描述' '' '' '' '' '',
+    'ZMENG' '数量' '' '' '' 'X' '',
+    'ZIEME' '单位' '' '' '' '' '',
+    'DROP' '值(下拉框)' '7' '' '' 'X'  '',
+    'ICON' '图标' '' '' '' '' ''.
+  "颜色-列.
+  gt_fieldcat-emphasize = 'C110'.
+  MODIFY gt_fieldcat TRANSPORTING emphasize WHERE fieldname = 'VBELN'.
+
+**汇总字段
+*  GT_FIELDCAT-DO_SUM = 'X'.
+*  MODIFY GT_FIELDCAT TRANSPORTING DO_SUM WHERE FIELDNAME = 'ZMENG'.    "该列汇总，排序处可控制汇总字段
+
+***下拉框的值
+  gw_ddval-handle = '1'.    "设置组别
+  gw_ddval-value  = 'A'.
+  APPEND gw_ddval TO gt_ddval.
+
+  gw_ddval-handle = '1'.
+  gw_ddval-value  = 'B'.
+  APPEND gw_ddval TO gt_ddval.
+
+  gw_ddval-handle = '2'.    "设置组别
+  gw_ddval-value  = 'C'.
+  APPEND gw_ddval TO gt_ddval.
+
+  gw_ddval-handle = '2'.
+  gw_ddval-value  = 'D'.
+  APPEND gw_ddval TO gt_ddval.
+*    GT_FIELDCAT-DD_OUTLEN = '7'.
+*    GT_FIELDCAT-DRDN_FIELD = 'DDROP.
+  gt_fieldcat-drdn_hndl  = '1'.    "设置下拉框的组
+  MODIFY gt_fieldcat TRANSPORTING drdn_hndl WHERE fieldname EQ 'DROP'.
+
+  "单击跳转，设置热键
+  gt_fieldcat-hotspot = 'X'.
+  MODIFY gt_fieldcat TRANSPORTING hotspot WHERE fieldname = 'VBELN'.
+
+*显示事件
+  "NEW.
+*  GT_EVENT = VALUE #( ( NAME = 'CALLER_EXIT' FORM = 'CALLER_EXIT' ) ).
+  "OLD.
+  gt_event-name = 'CALLER_EXIT'.
+  gt_event-form = 'CALLER_EXIT'.
+  APPEND gt_event.
+  CLEAR gt_event.
+
+
+*排序及汇总
+*  PERFORM F_ADD_SORT_LVC USING:
+*        'VBELN' 'X' '' 'X' ,
+*        'POSNR' 'X' '' '' .
+*  GT_SORT-FIELDNAME = FIELDNAME.    "
+*  GT_SORT-UP = UP.    "升序
+*  GT_SORT-DOWN = DOWN.    "降序
+*  GT_SORT-SUBTOT = SUBTOT.    "合计
+*  APPEND GT_SORT.
+*  CLEAR GT_SORT.
+
+
+  "获取编辑后返回值
+  gw_setting-edt_cll_cb = 'X'.
+  gv_pgm = sy-repid.
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY_LVC'
+    EXPORTING
+      i_callback_program          = gv_pgm
+      i_callback_html_top_of_page = 'HTML_TOP_OF_PAGE'
+      i_html_height_top           = 20
+      i_callback_pf_status_set    = 'PF_STATUS_SET'
+      i_callback_user_command     = 'USER_COMMAND'
+*     I_CALLBACK_TOP_OF_PAGE      = 'TOP_OF_PAGE'
+*     I_GRID_SETTINGS             = GW_SETTING
+      is_layout_lvc               = gw_layout
+      it_fieldcat_lvc             = gt_fieldcat[]
+      it_sort_lvc                 = gt_sort[]
+      i_save                      = 'A'
+      is_variant                  = lw_variant
+      it_events                   = gt_event[]
+    TABLES
+      t_outtab                    = gt_alv.
+ENDFORM.                    "DISPLAY_ALV_LVC
+*&---------------------------------------------------------------------*
+*& FORM ADD_FIELDCAT
+*&---------------------------------------------------------------------*
+FORM add_fieldcat  USING   pv_fieldname
+                            pv_scrtext
+                            pv_outputlen
+                            pv_key
+                            pv_checkbox
+                            pv_edit
+                            pv_no_zero.
+
+*  ADD 1 TO gv_colpos.
+*  gt_fieldcat-col_pos = gv_colpos.      "字段显示的列位置
+  gt_fieldcat-fieldname = pv_fieldname.
+  gt_fieldcat-reptext = pv_scrtext.
+  gt_fieldcat-outputlen = pv_outputlen.
+  gt_fieldcat-key = pv_key.
+  gt_fieldcat-checkbox = pv_checkbox.
+  gt_fieldcat-edit = pv_edit.
+  gt_fieldcat-no_zero = pv_no_zero.
+
+  gt_fieldcat-seltext = pv_scrtext.
+  gt_fieldcat-coltext = pv_scrtext.
+  gt_fieldcat-scrtext_s = pv_scrtext.
+  gt_fieldcat-scrtext_m = pv_scrtext.
+  gt_fieldcat-scrtext_l = pv_scrtext.
+
+  "自适应宽度
+  IF gt_fieldcat-outputlen EQ 0.
+    gt_fieldcat-col_opt = 'X'.
+  ENDIF.
+  IF gt_fieldcat-fieldname = 'MATNR'.
+    gt_fieldcat-dd_outlen = 18.
+  ENDIF.
+  "搜索帮助.
+  IF 'VBELN,MATKL' CS gt_fieldcat-fieldname.
+    gt_fieldcat-f4availabl = 'X'.
+  ENDIF.
+  "数量单位参考
+  IF 'ZMENG' CS gt_fieldcat-fieldname.
+    gt_fieldcat-qfieldname = 'ZIEME'.
+    gt_fieldcat-decimals = '3'.
+  ENDIF.
+*  "货币单位参考
+*  IF '' CS GT_FIELDCAT-FIELDNAME.
+*    GT_FIELDCAT-CFIELDNAME = ''.
+*  ENDIF.
+
+*  "参考字段
+*  GT_FIELDCAT-REF_FIELD = ''.
+*  GT_FIELDCAT-REF_TABLE = ''.
+
+  IF pv_fieldname = 'MSG'.
+    gt_fieldcat-col_opt = ''.
+*    gt_fieldcat-dd_outlen = outputlen.
+*    CLEAR gt_fieldcat-outputlen.
+  ENDIF.
+  "图标显示
+  IF pv_fieldname EQ 'ICON'.
+    gt_fieldcat-icon = 'X'.
+  ENDIF.
+
+  APPEND gt_fieldcat .
+  CLEAR gt_fieldcat.
+ENDFORM.                    "ADD_FIELDCAT
+*&---------------------------------------------------------------------*
+*& FORM CALLER_EXIT.
+*&---------------------------------------------------------------------*
+FORM caller_exit USING e_grid TYPE slis_data_caller_exit.
+
+  CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR'
+    IMPORTING
+      e_grid = go_alv_grid.
+
+  DATA: lo_event_receiver TYPE REF TO lcl_event_receiver.
+  CREATE OBJECT lo_event_receiver.
+
+*SEARCH HELP.
+  DATA: lt_f4 TYPE lvc_t_f4,
+        ls_f4 TYPE lvc_s_f4.
+  ls_f4-fieldname  = 'VBELN'.   "窗口时间参数（需要定义F4帮助按钮的字段）
+  ls_f4-register   = 'X'.
+  ls_f4-getbefore  = 'X'.
+  ls_f4-chngeafter = 'X'.
+  INSERT ls_f4 INTO TABLE lt_f4.
+  ls_f4-fieldname  = 'MATKL'.
+  INSERT ls_f4 INTO TABLE lt_f4.
+
+  SET HANDLER lo_event_receiver->handle_f4 FOR go_alv_grid.
+
+  CALL METHOD go_alv_grid->register_f4_for_fields
+    EXPORTING
+      it_f4 = lt_f4[].
+
+*回车
+*  CALL METHOD GO_ALV_GRID->REGISTER_EDIT_EVENT
+*    EXPORTING
+*      I_EVENT_ID = CL_GUI_ALV_GRID=>MC_EVT_ENTER
+*    EXCEPTIONS
+*      ERROR      = 1
+*      OTHERS     = 2.
+*更改即触发
+  CALL METHOD go_alv_grid->register_edit_event
+    EXPORTING
+      i_event_id = cl_gui_alv_grid=>mc_evt_modified
+    EXCEPTIONS
+      error      = 1
+      OTHERS     = 2.
+  "HANDLE_DATA_CHANGED.
+  SET HANDLER   lo_event_receiver->handle_data_changed FOR go_alv_grid.
+  "HANDLE_CHANGED_FINISHED.
+*  SET HANDLER   LO_EVENT_RECEIVER->HANDLE_CHANGED_FINISHED FOR GO_ALV_GRID.
+  "BUTTON_CLICK.
+  SET HANDLER   lo_event_receiver->handle_button_click FOR go_alv_grid.
+
+*下拉框
+  CALL METHOD go_alv_grid->set_drop_down_table
+    EXPORTING
+      it_drop_down = gt_ddval.
+
+ENDFORM.                    "CALLER_EXIT
+*&---------------------------------------------------------------------*
+*& FORM PF_STATUS_SET.
+*&---------------------------------------------------------------------*
+FORM pf_status_set USING rt_extab TYPE slis_t_extab.
+*SAPLSALV.
+  DATA fcode TYPE TABLE OF sy-ucomm.
+
+  APPEND 'CHANGE' TO fcode.
+  APPEND 'SAVE' TO fcode.
+
+  SET PF-STATUS'STANDARD' EXCLUDING fcode.
+ENDFORM.                    "PF_STATUS_SET
+*&---------------------------------------------------------------------*
+*& FORM USER_COMMAND.
+*&---------------------------------------------------------------------*
+FORM user_command USING pv_ucomm LIKE sy-ucomm
+                          pw_selfield TYPE slis_selfield.
+  CASE pv_ucomm.
+    WHEN '&IC1'.
+      "跳转
+      CHECK pw_selfield-value IS NOT INITIAL.
+      READ TABLE gt_alv INDEX pw_selfield-tabindex.
+      IF sy-subrc EQ 0.
+        CASE pw_selfield-fieldname.
+          WHEN 'VBELN'.   "单击
+            SET PARAMETER ID 'AUN' FIELD gt_alv-vbeln.
+            CALL TRANSACTION 'VA03' AND SKIP FIRST SCREEN.
+          WHEN 'MATNR'.   "双击
+            SET PARAMETER ID 'MAT' FIELD gt_alv-matnr.
+            CALL TRANSACTION 'MM03' AND SKIP FIRST SCREEN.
+        ENDCASE.
+        CLEAR:gt_alv.
+      ENDIF.
+    WHEN 'ZALL'.  "选择
+      gt_alv-selcb = 'X'.
+      MODIFY gt_alv TRANSPORTING selcb WHERE selcb EQ ''.
+      CLEAR gt_alv.
+    WHEN 'ZSAL'.    "取消选择
+      MODIFY gt_alv TRANSPORTING selcb WHERE selcb EQ 'X'.
+      CLEAR gt_alv.
+    WHEN 'ZSAVE'.
+      MESSAGE 'ZSAVE' TYPE 'I'.
+    WHEN 'ZPRT'.  "打印单据
+      READ TABLE gt_alv WITH KEY sel = 'X' TRANSPORTING NO FIELDS.
+      IF sy-subrc NE 0.
+        MESSAGE '请选择需要打印的行!' TYPE 'E'.
+      ENDIF.
+      PERFORM prt.
+    WHEN 'ZEMAIL'.    "发送邮件
+*      PERFORM sent_email.
+    WHEN 'ZDOWN'. "导出EXCEL
+      PERFORM output_excel.
+
+  ENDCASE.
+
+  pw_selfield-col_stable = 'X'.
+  pw_selfield-row_stable = 'X'.
+  pw_selfield-refresh = 'X'.
+ENDFORM.                    "USER_COMMAND
+*&---------------------------------------------------------------------*
+*& FORM PRT.
+*&---------------------------------------------------------------------*
+FORM prt.
+  DATA: lv_fmname             TYPE rs38l_fnam,
+        lw_option             TYPE ssfcompop,
+        lw_control_parameters TYPE ssfctrlop,
+        lw_job_output_info    TYPE ssfcrescl.
+  DATA:
+*  LW_HEADER TYPE ZSFFI_001_HD,
+*       LT_ITEM   TYPE ZSFFI_001_ITEM OCCURS 0 WITH HEADER LINE,
+    lv_lines TYPE i,
+    lv_times TYPE i.
+
+  SORT gt_alv BY vbeln posnr.
+
+  CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+    EXPORTING
+      formname = 'ZSFFI_001'
+    IMPORTING
+      fm_name  = lv_fmname.
+
+  lw_option-tdnoprint = ''.   "没有打印预览的打印输出
+  lw_option-tdnewid = 'X'.    "打印参数，新假脱机请求
+  lw_option-tdimmed = ''.   "打印参数，立即打印
+  lw_option-tddelete = 'X'.   "打印参数，打印后删除
+  lw_option-tdreceiver = sy-uname.   "打印参数，接收者
+  lw_option-tddest = 'LP01'.   "假脱机: 输出设备
+  lw_control_parameters-no_open = 'X'.   "
+  lw_control_parameters-no_close = 'X'.   "
+  lw_control_parameters-no_dialog = ''.   "
+  lw_control_parameters-preview = 'X'.   "
+  lw_control_parameters-langu = sy-langu.   "
+
+  CALL FUNCTION 'SSF_OPEN'
+    EXPORTING
+      user_settings      = space
+      output_options     = lw_option
+      control_parameters = lw_control_parameters
+    EXCEPTIONS
+      formatting_error   = 1
+      internal_error     = 2
+      send_error         = 3
+      user_canceled      = 4
+      OTHERS             = 5.
+
+
+*  LOOP AT GT_ALV ASSIGNING FIELD-SYMBOL(<FS_VBELN>) GROUP BY <FS_VBELN>-VBELN.
+*
+**    LW_HEADER- = <FS_VBELN>-.
+**    LW_HEADER- = <FS_VBELN>-.
+*
+*    LOOP AT GROUP <FS_VBELN> ASSIGNING FIELD-SYMBOL(<FS_POSNR>).
+**      LT_ITEM- = <FS_POSNR>-.
+**      LT_ITEM- = <FS_POSNR>-.
+**      LT_ITEM- = <FS_POSNR>-.
+**      LT_ITEM- = <FS_POSNR>-.
+**      APPEND LT_ITEM.
+**      CLEAR LT_ITEM.
+*    ENDLOOP.
+*
+**    LV_LINES = LINES( LT_ITEM[] ).
+**    LV_TIMES = LV_LINES MOD 13.
+**    IF LV_TIMES NE 0.
+**      LV_TIMES = 13 - LV_TIMES.
+**      DO LV_TIMES TIMES.
+**        APPEND INITIAL LINE TO LT_ITEM.
+**      ENDDO.
+**    ENDIF.
+**
+**    CALL FUNCTION LV_FMNAME
+**      EXPORTING
+**        CONTROL_PARAMETERS = LW_CONTROL_PARAMETERS
+**        OUTPUT_OPTIONS     = LW_OPTION
+**        I_HEADER           = LW_HEADER
+**      TABLES
+**        T_ITEM             = LT_ITEM
+**      EXCEPTIONS
+**        FORMATTING_ERROR   = 1
+**        INTERNAL_ERROR     = 2
+**        SEND_ERROR         = 3
+**        USER_CANCELED      = 4
+**        OTHERS             = 5.
+*
+**    CLEAR:LW_HEADER,LT_ITEM,LV_LINES,LV_TIMES.
+**    REFRESH LT_ITEM.
+*  ENDLOOP.
+
+  CALL FUNCTION 'SSF_CLOSE'
+    IMPORTING
+      job_output_info  = lw_job_output_info
+    EXCEPTIONS
+      formatting_error = 1
+      internal_error   = 2
+      send_error       = 3
+      OTHERS           = 4.
+
+ENDFORM.                    "PRT
+
+*&---------------------------------------------------------------------*
+*& FORM F_TOP_OF_PAGE.
+*&---------------------------------------------------------------------*
+FORM top_of_page.
+  DATA:lt_commentary TYPE slis_t_listheader WITH HEADER LINE.
+
+  lt_commentary-typ = 'H'.
+  lt_commentary-info = 'TEST-H'.
+  APPEND lt_commentary.
+  CLEAR lt_commentary.
+
+  lt_commentary-typ = 'S'.
+  lt_commentary-info = 'TEST-S'.
+  APPEND lt_commentary.
+  CLEAR lt_commentary.
+
+  lt_commentary-typ = 'A'.
+  lt_commentary-info = 'TEST-A'.
+  APPEND lt_commentary.
+  CLEAR lt_commentary.
+
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = lt_commentary[].
+*   I_LOGO                   =
+*   I_END_OF_LIST_GRID       =
+*   I_ALV_FORM               =
+  .
+ENDFORM.                    "F_TOP_OF_PAGE
+*&---------------------------------------------------------------------*
+*& FORM F_HTML_TOP_OF_PAGE.
+*&---------------------------------------------------------------------*
+FORM html_top_of_page USING document TYPE REF TO cl_dd_document.
+
+  DATA: lv_p      TYPE i,
+        lv_buffer TYPE string.
+
+  CONCATENATE  '<HTML><CENTER><H2>' '居中' '</H2></CENTER></HTML>' INTO lv_buffer.  " 居中  <H1>设置字体格式
+  CALL METHOD document->html_insert
+    EXPORTING
+      contents = lv_buffer
+    CHANGING
+      position = lv_p.
+
+  CONCATENATE '<BR ALIGN = LEFT >左:' '左1' INTO lv_buffer.
+  CALL METHOD document->html_insert
+    EXPORTING
+      contents = lv_buffer
+    CHANGING
+      position = lv_p.
+
+  CONCATENATE '<BR ALIGN = LEFT >左:' '左2' INTO lv_buffer.
+  CALL METHOD document->html_insert
+    EXPORTING
+      contents = lv_buffer
+    CHANGING
+      position = lv_p.
+ENDFORM.                    "F_HTML_TOP_OF_PAGE
+
+*&---------------------------------------------------------------------*
+*& FORM REFRESH_ALV.
+*&---------------------------------------------------------------------*
+FORM refresh_alv .
+  DATA: lw_stbl        TYPE lvc_s_stbl.
+  CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR'
+    IMPORTING
+      e_grid = go_alv_grid.
+  lw_stbl-row = 'X'." 基于行的稳定刷新
+  lw_stbl-col = 'X'." 基于列稳定刷新
+  CALL METHOD go_alv_grid->refresh_table_display
+    EXPORTING
+      is_stable = lw_stbl.
+ENDFORM.                    "REFRESH_ALV
+*&---------------------------------------------------------------------*
+*& FORM HANDLE_F4.
+*&---------------------------------------------------------------------*
+FORM handle_f4  USING   pv_fieldname TYPE lvc_fname
+                           pw_row TYPE lvc_s_roid.
+  DATA:lt_vbak  TYPE vbak OCCURS 0,
+       lt_t023t TYPE t023t OCCURS 0.
+  DATA:lt_return TYPE ddshretval OCCURS 0 WITH HEADER LINE.
+
+*  SELECT VBELN INTO TABLE @DATA(LT_VBELN) FROM VBAK UP TO 10 ROWS.
+  SELECT vbeln INTO TABLE lt_vbak FROM vbak UP TO 10 ROWS.
+  SELECT * INTO TABLE lt_t023t FROM t023t WHERE spras EQ sy-langu.
+
+  READ TABLE gt_alv INDEX pw_row-row_id.
+  IF sy-subrc EQ 0.
+    CASE  pv_fieldname.
+      WHEN 'VBELN'.
+        CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+          EXPORTING
+            retfield        = 'VBELN'            "LT内表里面的字段
+            dynpprog        = sy-repid
+            dynpnr          = sy-dynnr
+            dynprofield     = 'VBELN'            "画面上绑定字段
+            value_org       = 'S'
+          TABLES
+            value_tab       = lt_vbak      "需要显示帮助的值内表
+            return_tab      = lt_return          "返回值
+          EXCEPTIONS
+            parameter_error = 1
+            no_values_found = 2
+            OTHERS          = 3.
+      WHEN 'MATKL'.
+        CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+          EXPORTING
+            retfield         = 'MATKL'            "LT内表里面的字段
+            dynpprog         = sy-repid
+            dynpnr           = sy-dynnr
+            dynprofield      = 'MATKL'            "画面上绑定字段
+            value_org        = 'S'
+            callback_program = sy-repid
+            callback_form    = 'RTN_FIELD'      "返回多个值
+          TABLES
+            value_tab        = lt_t023t[]      "需要显示帮助的值内表
+            return_tab       = lt_return          "返回值
+          EXCEPTIONS
+            parameter_error  = 1
+            no_values_found  = 2
+            OTHERS           = 3.
+    ENDCASE.
+    IF sy-subrc EQ 0.
+      READ TABLE lt_return INDEX 1.
+      IF sy-subrc EQ 0.
+        READ TABLE gt_fieldcat WITH KEY fieldname = lt_return-retfield edit = 'X'.
+        IF sy-subrc EQ 0.
+          CASE pv_fieldname.
+            WHEN 'VBELN'.
+              gt_alv-vbeln = lt_return-fieldval.
+              MODIFY gt_alv INDEX pw_row-row_id TRANSPORTING vbeln.
+            WHEN 'MATKL'.
+              gt_alv-matkl = lt_return-fieldval.
+
+              READ TABLE lt_return WITH KEY retfield = 'WGBEZ'.
+              IF sy-subrc EQ 0.
+                gt_alv-wgbez = lt_return-fieldval.
+              ENDIF.
+
+              MODIFY gt_alv INDEX pw_row-row_id TRANSPORTING matkl wgbez.
+          ENDCASE.
+          CLEAR gt_fieldcat.
+        ENDIF.
+        CLEAR lt_return.
+      ENDIF.
+    ENDIF.
+    CLEAR gt_alv.
+  ENDIF.
+
+ENDFORM.                                                    "HANDLE_F4
+
+*&---------------------------------------------------------------------*
+*& FORM RTN_FIELD.
+*&---------------------------------------------------------------------*
+FORM rtn_field TABLES pt_record_tab STRUCTURE seahlpres
+                  CHANGING pt_shlp TYPE shlp_descr
+                           pw_callcontrol LIKE ddshf4ctrl.
+
+  DATA:lw_interface LIKE LINE OF pt_shlp-interface.
+  READ TABLE pt_shlp-interface INTO lw_interface INDEX 1.
+  lw_interface-shlpfield+4(1) = '4'.
+  lw_interface-valfield = 'WGBEZ'.
+  APPEND lw_interface TO pt_shlp-interface.
+ENDFORM.                    "RTN_FIELD
+
+*&---------------------------------------------------------------------*
+*& FORM HANDLE_DATA_CHANGED.
+*&---------------------------------------------------------------------*
+FORM handle_data_changed  USING pv_er_data_changed TYPE REF TO  cl_alv_changed_data_protocol
+                                  pv_onf4 TYPE char1
+                                  pv_onf4_before TYPE char1
+                                  pv_onf4_after TYPE char1
+                                  pv_ucomm TYPE sy-ucomm.
+
+  DEFINE cell_value.
+    pv_er_data_changed->modify_cell(
+    exporting
+      i_row_id = &1
+      i_fieldname = &2
+      i_value = &3 ).
+  END-OF-DEFINITION.
+  DEFINE get_cell_value.
+    pv_er_data_changed->get_cell_value(
+    exporting
+      i_row_id = &1
+      i_fieldname = &2
+    importing
+      e_value = &3 ).
+  END-OF-DEFINITION.
+
+  DEFINE msg .
+    pv_er_data_changed->add_protocol_entry(
+    exporting
+      i_msgid = '00'
+      i_msgty = 'E'
+      i_msgno = '001'
+      i_msgv1 =  &1
+      i_fieldname = &2
+      i_row_id = &3 ).
+    pv_er_data_changed->display_protocol( ).
+  END-OF-DEFINITION.
+
+  DEFINE modify_style.
+    pv_er_data_changed->modify_style(
+    exporting
+      i_row_id = &1
+      i_fieldname = &2
+      i_style = &3 ). " CL_GUI_ALV_GRID=>MC_STYLE_DISABLED
+  END-OF-DEFINITION.
+
+*MESSAGE
+  DATA:lv_msgv1   TYPE sy-msgv1,
+       lv_msgv2   TYPE sy-msgv1,
+       lv_message TYPE bapiret2-message.
+
+  IF   pv_onf4 = 'X'.
+    CHECK  pv_onf4_after = 'X'.
+  ENDIF.
+
+  "S4.
+*  DATA(LT_LINE) = PV_ER_DATA_CHANGED->MT_GOOD_CELLS.
+  "ECC.
+  DATA:lt_line TYPE lvc_s_modi OCCURS 0 WITH HEADER LINE,
+        lw_line TYPE lvc_s_modi.
+  lt_line[] = pv_er_data_changed->mt_good_cells.
+
+  READ TABLE lt_line INTO lw_line INDEX 1.
+  IF sy-subrc EQ 0.
+    CASE lw_line-fieldname.
+      WHEN 'SELCB'.
+        READ TABLE gt_alv INDEX lw_line-row_id.
+        IF sy-subrc EQ 0.
+          gt_alv-sel = lw_line-value.
+          MODIFY gt_alv TRANSPORTING sel WHERE vbeln IS NOT INITIAL.
+          CLEAR gt_alv.
+        ENDIF.
+      WHEN 'DROP'.    "处理下拉框的值
+        READ TABLE gt_alv INDEX lw_line-row_id.
+        IF sy-subrc EQ 0.
+          gt_alv-drop = lw_line-value.
+          MODIFY gt_alv INDEX lw_line-row_id TRANSPORTING drop .
+          CLEAR gt_alv.
+        ENDIF.
+      WHEN 'ZMENG'.
+        IF lw_line-row_id EQ 1 OR lw_line-row_id EQ 2.
+          lv_msgv1 = 'TEST MESSAGE ONLY ROW_ID EQ 1 OR EQ 2!'.
+        ENDIF.
+        IF lv_msgv1 IS NOT INITIAL.
+          CALL METHOD pv_er_data_changed->add_protocol_entry
+            EXPORTING
+              i_msgid     = '00'
+              i_msgty     = 'E'
+              i_msgno     = '001'
+              i_msgv1     = lv_msgv1
+              i_row_id    = lw_line-row_id
+              i_fieldname = lw_line-fieldname.
+        ENDIF.
+    ENDCASE.
+    CLEAR lw_line.
+  ENDIF.
+ENDFORM.                    "HANDLE_DATA_CHANGED
+*&---------------------------------------------------------------------*
+*& FORM HANDLE_CHANGED_FINISHED.
+*&---------------------------------------------------------------------*
+FORM handle_changed_finished  USING   pv_modifield   TYPE char01
+                                        pw_good_cells  TYPE lvc_t_modi .
+
+ENDFORM.                    "HANDLE_CHANGED_FINISHED
+*&---------------------------------------------------------------------*
+*&      FORM  HANDLE_BUTTON_CLICK
+*&---------------------------------------------------------------------*
+FORM handle_button_click  USING pv_col_id TYPE lvc_s_col
+                                pv_row_no TYPE lvc_s_roid.
+  DATA:lv_row TYPE int4.
+  CASE pv_col_id-fieldname.
+    WHEN 'BTN_ADD'.
+      READ TABLE gt_alv INDEX pv_row_no-row_id.
+      IF sy-subrc EQ 0.
+        lv_row = pv_row_no-row_id + 1.
+
+
+        INSERT gt_alv INDEX lv_row.
+        CLEAR gt_alv.
+      ENDIF.
+    WHEN 'ZDEL'.
+      DELETE gt_alv INDEX pv_row_no-row_id.
+  ENDCASE.
+
+ENDFORM.                    " HANDLE_BUTTON_CLICK
+
+*&---------------------------------------------------------------------*
+*& FORM OUTPUT_EXCEL
+*&---------------------------------------------------------------------*
+FORM output_excel .
+  PERFORM download_excel_fromserver USING 'ZMM001' gv_excelpath.
+  CHECK gv_excelpath IS NOT INITIAL.
+  PERFORM create_application.
+  PERFORM open_excel_sheet USING gv_excelpath '1' '1'.
+  PERFORM set_exceldata.
+  PERFORM excel_quit .
+ENDFORM.                    "OUTPUT_EXCEL
+*&---------------------------------------------------------------------*
+*& FORM SET_EXCELDATA
+*&---------------------------------------------------------------------*
+FORM set_exceldata .
+  DATA: lv_date      TYPE c LENGTH 20,
+        lv_waers(15) TYPE c.
+
+  FIELD-SYMBOLS:<fs_field>.
+  DATA: lv_str TYPE string.
+
+  DATA: BEGIN OF lt_excel OCCURS 0,
+          line(4096) TYPE c,
+        END OF lt_excel .
+
+  DATA: lv_tab TYPE c.
+  CLASS cl_abap_char_utilities DEFINITION LOAD.
+  lv_tab = cl_abap_char_utilities=>horizontal_tab.
+
+  CONCATENATE '左2：' '2' INTO lv_date.
+  PERFORM fill_cell USING 3 1 lv_date '' '' .
+
+  CONCATENATE '左2：' '2'  INTO lv_waers.
+  PERFORM fill_cell USING 4 1 lv_waers '' '' .
+
+  DATA: lv_count TYPE i.
+
+  REFRESH lt_excel.
+*"循环整个内表输入得到的现金流量表数据到EXCEL中   整合复制粘贴法的内表中
+*  LOOP AT GT_ALV.
+*
+*    DO 2 TIMES.
+*      ASSIGN COMPONENT ( SY-INDEX + 1 ) OF STRUCTURE GT_ALV TO <FS_FIELD> .
+*      IF SY-SUBRC = 0 .
+*        LV_STR = <FS_FIELD> .
+**        "负号前置
+**        CALL FUNCTION 'CLOI_PUT_SIGN_IN_FRONT'
+**          CHANGING
+**            VALUE = LV_STR.
+*
+*        IF LT_EXCEL IS NOT INITIAL .
+*          CONCATENATE LT_EXCEL LV_STR INTO LT_EXCEL SEPARATED BY LV_TAB .
+*        ELSE .
+*          LT_EXCEL =  LV_STR .
+*        ENDIF.
+*
+*        CLEAR:LV_STR .
+*      ENDIF.
+*    ENDDO.
+*
+*    APPEND LT_EXCEL.
+*    CLEAR: LT_EXCEL.
+*  ENDLOOP.
+  lv_count = LINES( gt_alv[] ) + 5.
+  PERFORM clipboard_to_excel TABLES lt_excel USING 6 3 lv_count 4.  "输出到EXCEL
+ENDFORM.                    "SET_EXCELDATA
